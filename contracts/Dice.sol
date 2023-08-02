@@ -1,0 +1,274 @@
+// SPDX-License-Identifier: GPL-3.0
+pragma solidity ^0.8.0;
+
+import "./Common.sol";
+
+/**
+ * @title Dice game, players predict if outcome will be over or under the selected number
+ */
+contract Dice is Common {
+    using SafeERC20 for IERC20;
+
+    constructor(address _bankroll, address _vrf) {
+        Bankroll = IBankRoll(_bankroll);
+        randomizer = _vrf;
+        VRFgasLimit = 2000000;
+    }
+
+    struct DiceGame {
+        uint256 wager;
+        uint256 stopGain;
+        uint256 stopLoss;
+        uint256 requestID;
+        address tokenAddress;
+        uint64 blockNumber;
+        uint32 numBets;
+        uint32 multiplier;
+        bool isOver;
+    }
+
+    struct VRFData {
+        uint256 id;
+        uint256 feePayed;
+    }
+
+    mapping(address => VRFData) vrfdata;
+    mapping(address => DiceGame) diceGames;
+    mapping(uint256 => address) diceIDs;
+    uint256 requestId;
+
+    event Dice_Play_Event(address indexed playerAddress, uint256 requestId);
+
+    /**
+     * @dev event emitted by the VRF callback with the bet results
+     * @param playerAddress address of the player that made the bet
+     * @param wager wager amount
+     * @param payout total payout transfered to the player
+     * @param tokenAddress address of token the wager was made and payout, 0 address is considered the native coin
+     * @param diceOutcomes results of dice roll, range 0-9999
+     * @param payouts individual payouts for each bet
+     * @param numGames number of games performed
+     */
+    event Dice_Outcome_Event(
+        address indexed playerAddress,
+        uint256 wager,
+        uint256 payout,
+        address tokenAddress,
+        uint256[] diceOutcomes,
+        uint256[] payouts,
+        uint32 numGames
+    );
+
+    /**
+     * @dev event emitted when a refund is done in dice
+     * @param player address of the player reciving the refund
+     * @param wager amount of wager that was refunded
+     * @param tokenAddress address of token the refund was made in
+     */
+    event Dice_Refund_Event(
+        address indexed player,
+        uint256 wager,
+        address tokenAddress
+    );
+
+    error AwaitingVRF(uint256 requestID);
+    error InvalidMultiplier(uint256 max, uint256 min, uint256 multiplier);
+    error InvalidNumBets(uint256 maxNumBets);
+    error WagerAboveLimit(uint256 wager, uint256 maxWager);
+    error NotAwaitingVRF();
+    error BlockNumberTooLow(uint256 have, uint256 want);
+
+    /**
+     * @dev function to get current request player is await from VRF, returns 0 if none
+     * @param player address of the player to get the state
+     */
+    function Dice_GetState(
+        address player
+    ) external view returns (DiceGame memory) {
+        return (diceGames[player]);
+    }
+
+    /**
+     * @dev Function to play Dice, takes the user wager saves bet parameters and makes a request to the VRF
+     * @param wager wager amount
+     * @param tokenAddress address of token to bet, 0 address is considered the native coin
+     * @param numBets number of bets to make, and amount of random numbers to request
+     * @param stopGain treshold value at which the bets stop if a certain profit is obtained
+     * @param stopLoss treshold value at which the bets stop if a certain loss is obtained
+     * @param isOver if true dice outcome must be over the selected number, false must be under
+     * @param multiplier selected multiplier for the wager range 10421-99000000, multiplier values divide by 10000
+     */
+
+    function Dice_Play(
+        uint256 wager,
+        uint32 multiplier,
+        address tokenAddress,
+        bool isOver,
+        uint32 numBets,
+        uint256 stopGain,
+        uint256 stopLoss
+    ) external payable nonReentrant {
+        if (!(multiplier >= 10421 && multiplier <= 9900000)) {
+            revert InvalidMultiplier(9900000, 10421, multiplier);
+        }
+        if (diceGames[msg.sender].requestID != 0) {
+            revert AwaitingVRF(diceGames[msg.sender].requestID);
+        }
+        if (!(numBets > 0 && numBets <= 100)) {
+            revert InvalidNumBets(100);
+        }
+
+        VRFData storage data = vrfdata[msg.sender];
+        uint256[2] memory fees = IRandomizer(randomizer).getFeeStats(data.id);
+        if (fees[0] > fees[1] && data.feePayed > fees[0] - fees[1]) {
+            IRandomizer(randomizer).clientWithdrawTo(
+                msg.sender,
+                ((data.feePayed - (fees[0] - fees[1])) * 90) / 100
+            );
+        }
+
+        _kellyWager(wager, tokenAddress, multiplier);
+        uint256 feePayed = _transferWager(tokenAddress, wager * numBets);
+
+        uint256 id = requestId;
+        requestId++;
+
+        diceGames[msg.sender] = DiceGame(
+            wager,
+            stopGain,
+            stopLoss,
+            id,
+            tokenAddress,
+            uint64(block.number),
+            numBets,
+            multiplier,
+            isOver
+        );
+        diceIDs[id] = msg.sender;
+        vrfdata[msg.sender] = VRFData(id, feePayed);
+        emit Dice_Play_Event(msg.sender, id);
+    }
+
+    /**
+     * @dev Function to refund player in case of VRF request failling
+     */
+
+    function Dice_Refund() external nonReentrant {
+        DiceGame storage game = diceGames[msg.sender];
+        if (game.requestID == 0) {
+            revert NotAwaitingVRF();
+        }
+        if (game.blockNumber + 20 > block.number) {
+            revert BlockNumberTooLow(block.number, game.blockNumber + 20);
+        }
+
+        uint256 wager = game.wager * game.numBets;
+        address tokenAddress = game.tokenAddress;
+
+        delete (diceIDs[game.requestID]);
+        delete (diceGames[msg.sender]);
+
+        if (tokenAddress == address(0)) {
+            (bool success, ) = payable(msg.sender).call{value: wager}("");
+            if (!success) {
+                revert TransferFailed();
+            }
+        } else {
+            IERC20(tokenAddress).safeTransfer(msg.sender, wager);
+        }
+        emit Dice_Refund_Event(msg.sender, wager, tokenAddress);
+    }
+
+    error OnlyRandomizerCanFulfill(address have, address want);
+
+    /**
+     * @dev function called by Randomizer.ai with the random number
+     * @param _id id provided when the request was made
+     * @param _value random number
+     */
+
+    function randomizerCallback(uint256 _id, bytes32 _value) external {
+        //Callback can only be called by randomizer
+        if (msg.sender != randomizer) {
+            revert OnlyRandomizerCanFulfill(msg.sender, randomizer);
+        }
+
+        address playerAddress = diceIDs[_id];
+        DiceGame storage game = diceGames[playerAddress];
+
+        int256 totalValue;
+        uint256 payout;
+        uint32 i;
+        uint256[] memory diceOutcomes = new uint256[](game.numBets);
+        uint256[] memory payouts = new uint256[](game.numBets);
+
+        uint256 winChance = 99000000000 / game.multiplier;
+        uint256 numberToRollOver = 10000000 - winChance;
+        uint256 gamePayout = (game.multiplier * game.wager) / 10000;
+
+        address tokenAddress = game.tokenAddress;
+
+        for (i = 0; i < game.numBets; i++) {
+            if (totalValue >= int256(game.stopGain)) {
+                break;
+            }
+            if (totalValue <= -int256(game.stopLoss)) {
+                break;
+            }
+
+            diceOutcomes[i] =
+                uint256(keccak256(abi.encodePacked(_value, i))) %
+                10000000;
+            if (diceOutcomes[i] >= numberToRollOver && game.isOver == true) {
+                totalValue += int256(gamePayout - game.wager);
+                payout += gamePayout;
+                payouts[i] = gamePayout;
+                continue;
+            }
+
+            if (diceOutcomes[i] <= winChance && game.isOver == false) {
+                totalValue += int256(gamePayout - game.wager);
+                payout += gamePayout;
+                payouts[i] = gamePayout;
+                continue;
+            }
+
+            totalValue -= int256(game.wager);
+        }
+
+        payout += (game.numBets - i) * game.wager;
+
+        emit Dice_Outcome_Event(
+            playerAddress,
+            game.wager,
+            payout,
+            tokenAddress,
+            diceOutcomes,
+            payouts,
+            i
+        );
+        _transferToBankroll(tokenAddress, game.wager * game.numBets);
+        delete (diceIDs[_id]);
+        delete (diceGames[playerAddress]);
+        if (payout != 0) {
+            _transferPayout(playerAddress, payout, tokenAddress);
+        }
+    }
+
+    function _kellyWager(
+        uint256 wager,
+        address tokenAddress,
+        uint256 multiplier
+    ) internal view {
+        uint256 balance;
+        if (tokenAddress == address(0)) {
+            balance = address(Bankroll).balance;
+        } else {
+            balance = IERC20(tokenAddress).balanceOf(address(Bankroll));
+        }
+        uint256 maxWager = (balance * (11000 - 10890)) / (multiplier - 10000);
+        if (wager > maxWager) {
+            revert WagerAboveLimit(wager, maxWager);
+        }
+    }
+}
