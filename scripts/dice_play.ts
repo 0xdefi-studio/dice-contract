@@ -11,6 +11,10 @@ async function main() {
   const tx_approve = await Token.approve(
     await dice.getAddress(),
     '10000000000000000000',
+    {
+      gasLimit: 5000000,
+      gasPrice: process.env.GASPRICE || '',
+    },
   );
   console.log('tx_approve: ', tx_approve.hash);
   await tx_approve.wait();
@@ -22,6 +26,10 @@ async function main() {
     1,
     '10000000000000000000',
     '500000000000000000',
+    {
+      gasLimit: 5000000,
+      gasPrice: process.env.GASPRICE || '',
+    },
   );
   console.log('tx: ', tx.hash);
   await tx.wait();

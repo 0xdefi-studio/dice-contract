@@ -35,6 +35,10 @@ async function main() {
   const tx_fund_dice = await Token.transfer(
     await bankroll.getAddress(),
     '5000000000000000000000',
+    {
+      gasLimit: 5000000,
+      gasPrice: process.env.GASPRICE || '',
+    },
   );
   console.log('tx fund dice": ', tx_fund_dice.hash);
   await tx_fund_dice.wait();

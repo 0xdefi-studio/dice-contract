@@ -8,7 +8,7 @@ async function main() {
   const [owner] = await ethers.getSigners();
   const dice = await ethers.getContractAt('Dice', process.env.Dice || '');
   const state = await dice.Dice_GetState(owner.address);
-  console.log("state: ", state);
+  console.log('state: ', state);
 }
 
 // We recommend this pattern to be able to use async/await everywhere

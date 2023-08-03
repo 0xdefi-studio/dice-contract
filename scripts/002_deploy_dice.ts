@@ -5,10 +5,9 @@ import { config as dotenvConfig } from 'dotenv';
 dotenvConfig({ path: resolve(__dirname, './.env') });
 
 async function main() {
-  const [owner] = await ethers.getSigners();
   const Dice = await ethers.deployContract(
     'Dice',
-    [process.env.Bankroll || '', owner],
+    [process.env.Bankroll || '', '0x9bE5C28fC36D9b324d61e98cb48e53fe5A2993b4'],
     {
       gasLimit: 5000000,
       gasPrice: process.env.GASPRICE || '',
