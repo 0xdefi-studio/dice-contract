@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "./Common.sol";
+import "hardhat/console.sol";
 
 /**
  * @title Dice game, players predict if outcome will be over or under the selected number
@@ -108,6 +109,7 @@ contract Dice is Common {
         uint256 stopGain,
         uint256 stopLoss
     ) external payable nonReentrant {
+        console.log("start playing");
         if (!(multiplier >= 10421 && multiplier <= 9900000)) {
             revert InvalidMultiplier(9900000, 10421, multiplier);
         }
@@ -119,20 +121,20 @@ contract Dice is Common {
         }
 
         VRFData storage data = vrfdata[msg.sender];
-        uint256[2] memory fees = IRandomizer(randomizer).getFeeStats(data.id);
-        if (fees[0] > fees[1] && data.feePayed > fees[0] - fees[1]) {
-            IRandomizer(randomizer).clientWithdrawTo(
-                msg.sender,
-                ((data.feePayed - (fees[0] - fees[1])) * 90) / 100
-            );
-        }
+        // uint256[2] memory fees = IRandomizer(randomizer).getFeeStats(data.id);
+        // if (fees[0] > fees[1] && data.feePayed > fees[0] - fees[1]) {
+        //     IRandomizer(randomizer).clientWithdrawTo(
+        //         msg.sender,
+        //         ((data.feePayed - (fees[0] - fees[1])) * 90) / 100
+        //     );
+        // }
 
         _kellyWager(wager, tokenAddress, multiplier);
         uint256 feePayed = _transferWager(tokenAddress, wager * numBets);
 
         uint256 id = requestId;
         requestId++;
-
+        console.log("id: ", id);
         diceGames[msg.sender] = DiceGame(
             wager,
             stopGain,
