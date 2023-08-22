@@ -28,10 +28,12 @@ const config: HardhatUserConfig = {
       accounts: ["0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"]
    },
     mantle: {
-      url: "https://rpc.testnet.mantle.xyz/",
+      url: "https://rpc.mantle.xyz/",
       accounts: {
         path: "m/44'/60'/0'/0",
-        initialIndex: 0,
+        // mainnet: 2
+        // testnet: 0
+        initialIndex: 2,
         mnemonic: process.env.MANTLE_MNEMONIC,
       },
     },

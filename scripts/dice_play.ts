@@ -10,7 +10,7 @@ async function main() {
   const Token = await ethers.getContractAt('Token', token);
   const tx_approve = await Token.approve(
     await dice.getAddress(),
-    '10000000000000000000',
+    '1000000000000000000',
     {
       gasLimit: 5000000,
       gasPrice: process.env.GASPRICE || '',
@@ -19,8 +19,8 @@ async function main() {
   console.log('tx_approve: ', tx_approve.hash);
   await tx_approve.wait();
   const tx = await dice.Dice_Play(
-    '10000000000000000000',
-    '20000',
+    '1000000000000000000',
+    '11379',
     token,
     true,
     1,
@@ -29,6 +29,7 @@ async function main() {
     {
       gasLimit: 5000000,
       gasPrice: process.env.GASPRICE || '',
+      value: '4000000000000000000',
     },
   );
   console.log('tx: ', tx.hash);

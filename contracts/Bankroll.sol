@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Context} from "@openzeppelin/contracts/utils/Context.sol";
+import {ERC4626} from "./ERC4626.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ContextUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/draft-ERC20PermitUpgradeable.sol";
 
-contract Bankroll is Ownable {
+contract Bankroll is Initializable, Ownable, ERC4626 {
     using SafeERC20 for IERC20;
 
     mapping(address => bool) isGame;
@@ -29,6 +35,33 @@ contract Bankroll is Ownable {
     event Bankroll_Token_State_Changed(address tokenAddress, bool isValid);
     error InvalidGameAddress();
     error TransferFailed();
+
+    function _msgSender()
+        internal
+        view
+        override(Context, ContextUpgradeable)
+        returns (address)
+    {
+        return msg.sender;
+    }
+
+    function _msgData()
+        internal
+        view
+        override(Context, ContextUpgradeable)
+        returns (bytes calldata)
+    {
+        return msg.data;
+    }
+
+    function initialize(address _asset) public initializer {
+        isTokenAllowed[_asset] = true;
+        emit Bankroll_Token_State_Changed(_asset, true);
+        IERC20Metadata underlying = IERC20Metadata(_asset);
+        __ERC20_init(underlying.name(), underlying.symbol());
+        __ERC20Permit_init(underlying.name());
+        __ERC4626_init(underlying);
+    }
 
     /**
      * @dev remove funds from the bankroll
@@ -151,5 +184,9 @@ contract Bankroll is Ownable {
         address player
     ) external view returns (bool, uint256) {
         return (_isPlayerSuspended[player], suspendedTime[player]);
+    }
+
+    function totalAssets() public view override returns (uint256) {
+        return asset.balanceOf(address(this));
     }
 }

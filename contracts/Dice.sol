@@ -3,11 +3,12 @@ pragma solidity ^0.8.0;
 
 import "./Common.sol";
 import "hardhat/console.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
 /**
  * @title Dice game, players predict if outcome will be over or under the selected number
  */
-contract Dice is Common {
+contract Dice is Common, Ownable {
     using SafeERC20 for IERC20;
 
     constructor(address _bankroll, address _vrf) {
@@ -37,6 +38,8 @@ contract Dice is Common {
     mapping(address => DiceGame) diceGames;
     mapping(uint256 => address) diceIDs;
     uint256 requestId;
+    uint256 transactionFee = 3 ether;
+    uint256 houseMultiplier = 1;
 
     event Dice_Play_Event(address indexed playerAddress, uint256 requestId);
 
@@ -89,6 +92,32 @@ contract Dice is Common {
         return (diceGames[player]);
     }
 
+    function setTransactionFee(uint256 fee) public onlyOwner {
+        transactionFee = fee;
+    }
+
+    function withdrawNativeFunds(
+        address to,
+        uint256 amount
+    ) external onlyOwner {
+        (bool success, ) = payable(to).call{value: amount}("");
+        if (!success) {
+            revert TransferFailed();
+        }
+    }
+
+    function changeRandomizer(address randomizer) external onlyOwner {
+        _changeRandomizer(randomizer);
+    }
+
+    function changeHouseMultiplier(uint256 multiplier) external onlyOwner {
+        houseMultiplier = multiplier;
+    }
+
+    function getTransactionFee() public view returns (uint256) {
+        return transactionFee;
+    }
+
     /**
      * @dev Function to play Dice, takes the user wager saves bet parameters and makes a request to the VRF
      * @param wager wager amount
@@ -109,7 +138,6 @@ contract Dice is Common {
         uint256 stopGain,
         uint256 stopLoss
     ) external payable nonReentrant {
-        console.log("start playing");
         if (!(multiplier >= 10421 && multiplier <= 9900000)) {
             revert InvalidMultiplier(9900000, 10421, multiplier);
         }
@@ -130,11 +158,14 @@ contract Dice is Common {
         // }
 
         _kellyWager(wager, tokenAddress, multiplier);
-        uint256 feePayed = _transferWager(tokenAddress, wager * numBets);
+        uint256 feePayed = _transferWager(
+            tokenAddress,
+            wager * numBets,
+            transactionFee
+        );
 
         uint256 id = requestId;
         requestId++;
-        console.log("id: ", id);
         diceGames[msg.sender] = DiceGame(
             wager,
             stopGain,
@@ -268,7 +299,10 @@ contract Dice is Common {
         } else {
             balance = IERC20(tokenAddress).balanceOf(address(Bankroll));
         }
-        uint256 maxWager = (balance * (11000 - 10890)) / (multiplier - 10000);
+        // multiplier: 10421-99000000
+        // 110 / ()
+        uint256 maxWager = (houseMultiplier * (balance * (11000 - 10890))) /
+            (multiplier - 10000);
         if (wager > maxWager) {
             revert WagerAboveLimit(wager, maxWager);
         }

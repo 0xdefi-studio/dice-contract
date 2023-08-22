@@ -5,20 +5,22 @@ import { config as dotenvConfig } from 'dotenv';
 dotenvConfig({ path: resolve(__dirname, './.env') });
 
 async function main() {
-  const [owner] = await ethers.getSigners();
-  console.log('owner: ', owner.address);
-  const Dice = await ethers.deployContract(
-    'Dice',
-    [process.env.Bankroll || '', owner.address],
+  const bankroll = await ethers.getContractAt(
+    'Bankroll',
+    process.env.Bankroll || '',
+  );
+
+  // set token address
+  const tx_set_token = await bankroll.setTokenAddress(
+    process.env.Token || '',
+    true,
     {
       gasLimit: 5000000,
       gasPrice: process.env.GASPRICE || '',
     },
   );
-
-  const tx = await Dice.waitForDeployment();
-  await tx.waitForDeployment();
-  console.log('Dice address: ', await Dice.getAddress());
+  console.log('tx token address: ', tx_set_token.hash);
+  await tx_set_token.wait();
 }
 
 // We recommend this pattern to be able to use async/await everywhere

@@ -5,19 +5,24 @@ import { config as dotenvConfig } from 'dotenv';
 dotenvConfig({ path: resolve(__dirname, './.env') });
 
 async function main() {
-  const bankroll = await ethers.getContractAt(
+  const house = await ethers.getContractAt(
     'Bankroll',
     process.env.Bankroll || '',
   );
+  const totalSupply = await house.totalSupply();
+  console.log('total supply: ', totalSupply);
 
-  // set game
-  const tx = await bankroll.setGame(process.env.Dice || '', true, {
-    gasLimit: 5000000,
-    gasPrice: process.env.GASPRICE || '',
-  });
-  console.log('tx set game: ', tx.hash);
-  await tx.wait();
+  const totalAsset = await house.totalAssets();
+  console.log('total asset: ', totalAsset);
+
+  const d = ethers.parseEther('50');
+  console.log('d: ', d);
+  const shares = await house.convertToShares(d);
+  console.log('shares: ', shares);
 }
+
+// 100000000000000000000
+// 50000000000000000000
 
 // We recommend this pattern to be able to use async/await everywhere
 // and properly handle errors.

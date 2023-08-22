@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "hardhat/console.sol";
 
 interface IRandomizer {
     function request(
@@ -60,9 +61,14 @@ contract Common is ReentrancyGuard {
     error ZeroWager();
     error PlayerSuspended(uint256 suspensionTime);
 
+    function _changeRandomizer(address _randomizer) internal {
+        randomizer = _randomizer;
+    }
+
     function _transferWager(
         address tokenAddress,
-        uint256 wager
+        uint256 wager,
+        uint256 vrfFee
     ) internal returns (uint256 VRFfee) {
         if (!Bankroll.getIsValidWager(address(this), tokenAddress)) {
             revert NotApprovedBankroll();
@@ -76,28 +82,31 @@ contract Common is ReentrancyGuard {
         if (suspended) {
             revert PlayerSuspended(suspendedTime);
         }
-        // always 0 here
-        VRFfee = 0;
         if (tokenAddress == address(0)) {
-            if (msg.value < wager + VRFfee) {
-                revert InvalidValue(msg.value, wager + VRFfee);
+            if (msg.value < wager + vrfFee) {
+                revert InvalidValue(msg.value, wager + vrfFee);
             }
-            // no need to deposit to anywhere
-            // IRandomizer(randomizer).clientDeposit{value: VRFfee}(address(this));
 
-            _refundExcessValue(msg.value - (VRFfee + wager));
+            (bool sent, bytes memory data) = payable(randomizer).call{
+                value: vrfFee
+            }("");
+            require(sent, "Failed to fund back randomizer");
+
+            _refundExcessValue(msg.value - (vrfFee + wager));
         } else {
-            if (msg.value < VRFfee) {
+            if (msg.value < vrfFee) {
                 revert InvalidValue(VRFfee, msg.value);
             }
-            // no need to deposit to anywhere
-            // IRandomizer(randomizer).clientDeposit{value: VRFfee}(address(this));
+            (bool sent, bytes memory data) = payable(randomizer).call{
+                value: vrfFee
+            }("");
+            require(sent, "Failed to fund back randomizer");
             IERC20(tokenAddress).safeTransferFrom(
                 msg.sender,
                 address(this),
                 wager
             );
-            _refundExcessValue(msg.value - VRFfee);
+            _refundExcessValue(msg.value - vrfFee);
         }
     }
 
@@ -138,6 +147,7 @@ contract Common is ReentrancyGuard {
         if (refund == 0) {
             return;
         }
+        console.log("refund: ", refund);
         (bool success, ) = payable(msg.sender).call{value: refund}("");
         if (!success) {
             revert RefundFailed();
